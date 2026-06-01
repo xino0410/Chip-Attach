@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import time
 
-# 1. 웹페이지 기본 설정
+# 1. 웹페이지 기본 설정 (한 번만 실행)
 st.set_page_config(page_title="FAB Web Automation Pro", layout="wide")
 
 # UI 가시성 및 수율 글자 색상/크기 극대화 CSS
@@ -13,7 +13,6 @@ st.markdown("""
         image-rendering: pixelated !important;
         image-rendering: crisp-edges !important;
     }
-    /* 사이드바 메트릭 배경 투명화 및 형광 녹색 강조 */
     [data-testid="stMetricValue"] {
         color: #00ff66 !important;
         font-weight: bold !important;
@@ -55,14 +54,12 @@ if "wafer_num" not in st.session_state:
     st.session_state.interlock = False
     st.session_state.current_fault = None
     
-    # 누적 통계 데이터
     st.session_state.total_processed_chips = 0  
     st.session_state.total_good_chips = 0       
     st.session_state.rework_count = 0           
     st.session_state.reject_count = 0           
     st.session_state.wafer_history = []         
     
-    # 설비 정비 관련 변수
     st.session_state.maintenance_required = False 
     st.session_state.pm_done_signal = False       
 
@@ -72,21 +69,26 @@ if "wafer_num" not in st.session_state:
 
 # 3. 사이드바 컨트롤 패널 구성
 st.sidebar.title("🏭 MES PACKAGING LINE")
-st.sidebar.markdown(f"### **현재 웨이퍼 런:** {st.session_state.wafer_num} / 25 장")
+sidebar_title_holder = st.sidebar.empty()
+sidebar_title_holder.markdown(f"### **현재 웨이퍼 런:** {st.session_state.wafer_num} / 25 장")
 
-# LOT 누적 수율 계산
-if st.session_state.total_processed_chips == 0:
-    lot_yield = 100.0
-else:
-    lot_yield = (st.session_state.total_good_chips / st.session_state.total_processed_chips) * 100
+# LOT 누적 수율 계산 함수
+def get_lot_yield():
+    if st.session_state.total_processed_chips == 0:
+        return 100.0
+    return (st.session_state.total_good_chips / st.session_state.total_processed_chips) * 100
 
-# 진행률 연산
+# 사이드바 실시간 데이터 홀더 지정 (깜빡임 방지용)
+yield_metric_holder = st.sidebar.empty()
+progress_bar_holder = st.sidebar.empty()
+progress_text_holder = st.sidebar.empty()
+
+# 사이드바 초기 렌더링
+lot_yield = get_lot_yield()
 progress = (st.session_state.scan_idx / len(st.session_state.valid_coords)) * 100 if len(st.session_state.valid_coords) > 0 else 0
-
-# 선명한 형광 연두색 메트릭 지표
-yield_metric = st.sidebar.metric(label="📊 LOT 누적 공정 수율 (Yield)", value=f"{lot_yield:.2f} %")
-progress_bar = st.sidebar.progress(min(int(progress), 100))
-progress_text = st.sidebar.caption(f"웨이퍼 공정 진행률: {progress:.1f}% (조립 완료: {st.session_state.total_processed_chips} EA)")
+yield_metric_holder.metric(label="📊 LOT 누적 공정 수율 (Yield)", value=f"{lot_yield:.2f} %")
+progress_bar_holder.progress(min(int(progress), 100))
+progress_text_holder.caption(f"웨이퍼 공정 진행률: {progress:.1f}% (조립 완료: {st.session_state.total_processed_chips} EA)")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("⏱️ **공정 시뮬레이션 속도 제어**")
@@ -96,7 +98,6 @@ speed_mode = st.sidebar.radio(
     index=0
 )
 
-# 제어 버튼 레이아웃
 st.sidebar.markdown("---")
 col1, col2 = st.sidebar.columns(2)
 with col1:
@@ -106,7 +107,6 @@ with col1:
             for w_idx in range(start_num, 26):
                 w_data, v_coords = generate_new_wafer()
                 wafer_reject_count = 0
-                
                 for r, c in v_coords:
                     if w_data[r, c] == 0:
                         st.session_state.total_processed_chips += 1
@@ -118,7 +118,6 @@ with col1:
                             w_data[r, c] = -1
                             st.session_state.reject_count += 1
                             wafer_reject_count += 1
-                
                 current_lot_yield = (st.session_state.total_good_chips / st.session_state.total_processed_chips) * 100
                 st.session_state.wafer_history.append({
                     "Wafer": f"#{w_idx:02d}",
@@ -152,10 +151,9 @@ with col2:
         st.session_state.valid_coords = valid_coords
         st.rerun()
 
-# 4. 메인 화면 레이아웃 빌드
+# 4. 메인 화면 프레임 레이아웃 배치 (고정 영역)
 st.title("🖥️ Inline Web-MES Packaging Control Dashboard")
 
-# 설비진단용 경고 위치 홀더
 maintenance_holder = st.empty()
 if st.session_state.maintenance_required:
     with maintenance_holder.container():
@@ -176,15 +174,14 @@ if st.session_state.maintenance_required:
 if st.session_state.pm_done_signal and not st.session_state.maintenance_required:
     st.info("💡 [장비 상태 알림] 엔지니어 PM 조치 완료 - 현재 최적 압력 구동 중 (불량 발생률 최소화)")
 
-# 메인 분할 레이아웃
+# 메인 레이아웃 분할
 main_col1, main_col2 = st.columns([1.1, 1.0])
 
 with main_col1:
     st.subheader("🔮 Real-time Wafer Map")
     interlock_holder = st.empty()
-    map_holder = st.empty()
+    map_holder = st.empty() # 이미지 알맹이만 바꿀 전용 바구니 고정
 
-    # 인터록 발생 시 상태창 표시
     if st.session_state.interlock:
         with interlock_holder.container():
             r, c = st.session_state.current_fault
@@ -208,8 +205,8 @@ with main_col1:
                     st.session_state.scan_idx += 1
                     st.rerun()
 
-    # 초기 맵 그리기
-    def draw_map():
+    # 이미지 갱신을 렌더링 병목 없이 주입하는 함수
+    def update_map_display():
         cell_size = 24
         grid_color = [30, 41, 59]
         color_map = {-2: [15, 23, 42], -1: [239, 68, 68], 0: [100, 116, 139], 1: [16, 185, 129]}
@@ -225,7 +222,7 @@ with main_col1:
                     img_data[r_end-1, c_start:c_end] = grid_color
         map_holder.image(img_data, width=460, use_container_width=False)
 
-    draw_map()
+    update_map_display()
 
 with main_col2:
     st.subheader("📊 LOT 제조 품질 분석 통계 트렌드")
@@ -247,7 +244,6 @@ with main_col2:
 
     draw_charts()
     
-    # 최종 완공 리포트용 홀더
     report_holder = st.empty()
     if st.session_state.wafer_num >= 25 and st.session_state.scan_idx >= len(st.session_state.valid_coords):
         with report_holder.container():
@@ -255,18 +251,19 @@ with main_col2:
             st.success("🏆 1 LOT (25 Wafers) RUN COMPLETED!")
             st.subheader("📋 Final Manufacturing Output Summary")
             report_col1, report_col2, report_col3 = st.columns(3)
-            report_col1.metric("종합 양품 수율", f"{lot_yield:.2f} %")
+            report_col1.metric("종합 양품 수율", f"{get_lot_yield():.2f} %")
             report_col2.metric("총 폐기 칩(Reject)", f"{st.session_state.reject_count} EA")
             report_col3.metric("엔지니어 구제(Rework) 건수", f"{st.session_state.rework_count} 건")
 
 
-# 🌟 5. [잔상 버그 완전 해결] 한 루프 안에서 가동되도록 엔진 개편
+# 🌟 5. [버그 완전 해결] 깜빡임 원천 차단형 인라인 드로잉 엔진
 if st.session_state.is_running and not st.session_state.interlock and not st.session_state.maintenance_required:
     if speed_mode == "일반 실시간 모드 (눈으로 확인용)":
         
-        # 렌더링 부하를 예방하고 부드러운 애니메이션을 위해 인라인 While 루프 작동
+        # 전체 화면 새로고침(st.rerun) 없이 내부 While 루프 안에서 지정된 placeholder 슬롯의 정보만 실시간 스왑
         while st.session_state.scan_idx < len(st.session_state.valid_coords):
-            # 실시간 누적 수율과 불량 상태 체크 리포트 연산
+            
+            # 장비 오염도(5회 불량) 도달 시 즉시 인터럽트 걸고 전체 리런
             if st.session_state.reject_count >= 5:
                 st.session_state.maintenance_required = True
                 st.session_state.is_running = False
@@ -276,13 +273,12 @@ if st.session_state.is_running and not st.session_state.interlock and not st.ses
             current_state = st.session_state.wafer_data[r, c]
             
             if current_state == -1:
-                # 전공정 불량칩은 딜레이 없이 즉시 연산 패스
+                # 이미 불량 처리된 칩은 딜레이 없이 순간 통과
                 st.session_state.scan_idx += 1
                 continue
-            elif current_state == 0:
-                time.sleep(0.005)  # 화면 밀림을 없애기 위해 완벽하게 최적화된 내부 틱 타이머
-                st.session_state.total_processed_chips += 1
                 
+            elif current_state == 0:
+                st.session_state.total_processed_chips += 1
                 fail_rate = 0.012 if st.session_state.pm_done_signal else 0.048
                 
                 if np.random.rand() > fail_rate:
@@ -290,30 +286,33 @@ if st.session_state.is_running and not st.session_state.interlock and not st.ses
                     st.session_state.total_good_chips += 1
                     st.session_state.scan_idx += 1
                     
-                    # 🌟 st.rerun()을 쓰지 않고 생성된 이미지 슬롯의 알맹이(Data)만 교체하여 깜빡임과 늘어남을 차단
-                    draw_map()
+                    # 🔥 핵심: st.rerun()을 쓰지 않고 오직 타겟 요소만 데이터 변조 적용 (깜빡임 완벽 제거의 비밀)
+                    update_map_display()
                     
-                    # 사이드바 텍스트 및 프로그레스 실시간 갱신
-                    cur_lot_yield = (st.session_state.total_good_chips / st.session_state.total_processed_chips) * 100
-                    yield_metric.metric(label="📊 LOT 누적 공정 수율 (Yield)", value=f"{cur_lot_yield:.2f} %")
+                    # 사이드바 텍스트 및 게이지도 새로고침 없이 부드럽게 제자리 스왑
+                    cur_yield = get_lot_yield()
+                    yield_metric_holder.metric(label="📊 LOT 누적 공정 수율 (Yield)", value=f"{cur_yield:.2f} %")
                     prog = (st.session_state.scan_idx / len(st.session_state.valid_coords)) * 100
-                    progress_bar.progress(min(int(prog), 100))
-                    progress_text.caption(f"웨이퍼 공정 진행률: {prog:.1f}% (조립 완료: {st.session_state.total_processed_chips} EA)")
+                    progress_bar_holder.progress(min(int(prog), 100))
+                    progress_text_holder.caption(f"웨이퍼 공정 진행률: {prog:.1f}% (조립 완료: {st.session_state.total_processed_chips} EA)")
+                    
+                    # 점이 찍히는 시각적 속도 제어 틱 타임 (원하는 스피드로 조절 가능)
+                    time.sleep(0.02)
                 else:
                     st.session_state.wafer_data[r, c] = -1
                     st.session_state.interlock = True
                     st.session_state.is_running = False
                     st.session_state.current_fault = (r, c)
-                    st.rerun() # 인터록(불량 창) 활성화를 위한 안전 리런
+                    st.rerun() # 불량 인터록 팝업을 안전하게 노출하기 위해서만 리런 사용
         else:
-            # 1장 마감 후 다음 장 전환 프로세스
+            # 한 장 마감 후 자동 다음 장 교체 시스템 마감
             unique, counts = np.unique(st.session_state.wafer_data, return_counts=True)
             counts_dict = dict(zip(unique, counts))
             w_rejects = counts_dict.get(-1, 0)
             
             st.session_state.wafer_history.append({
                 "Wafer": f"#{st.session_state.wafer_num:02d}",
-                "수율(%)": round(lot_yield, 2),
+                "수율(%)": round(get_lot_yield(), 2),
                 "불량수(EA)": w_rejects
             })
             
